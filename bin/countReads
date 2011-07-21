@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+        echo "Usage: $(basename $0) <SeqRunID>" 1>&2
+        exit 1
+fi
+
+seqRunID=$1
+runDir="/gau-raw/data/ngs/database/$(printf %08.0f $1)"
+#read1=$(find "$runDir/READ1" -type f)
+#read2=$(find "$runDir/READ2" -type f)
+fastqcDir=$runDir/FASTQC
+fastqcRead1=$fastqcDir/READ1_fastqc.zip
+fastqcRead2=$fastqcDir/READ2_fastqc.zip
+
+if [ ! -f "$fastqcRead1" ] && [ ! -f "$fastqcRead2" ]; then
+        echo "FastQC file(s) not found in $fastqcDir" 1>&2
+        exit 2
+fi
+
+if [ -f "$fastqcRead1" ]; then
+	read1Count=$(unzip -c "$fastqcRead1" READ1_fastqc/fastqc_data.txt | grep -E '^Total Sequences' | cut -d'	' -f2)
+	echo "SequenceRunID $seqRunID, READ1: $read1Count reads sequenced"
+fi
+if [ -f "$fastqcRead2" ]; then
+	read2Count=$(unzip -c "$fastqcRead2" READ2_fastqc/fastqc_data.txt | grep -E '^Total Sequences' | cut -d'	' -f2)
+	echo "SequenceRunID $seqRunID, READ2: $read2Count reads sequenced"
+fi

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+usage() {
+	echo "
+		USAGE
+			`basename $0` filteredReads.bowtie.out
+		
+		DESCRIPTION
+			Counts reads aligned to + and - strands of ERCC transcripts
+		
+		OUTPUT
+			Stdout: number of reads aligned to each strand
+	" | sed -e 's/	//' -e 's/	/    /' 1>&2
+	exit 1
+}
+
+##
+# Check usage
+#
+
+if [ $# -ne 1 ]; then
+	usage
+fi
+
+grep ERCC "$1" | cut -d'	' -f2 | sort | uniq -c

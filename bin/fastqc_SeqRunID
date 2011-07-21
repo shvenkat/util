@@ -1,0 +1,131 @@
+#!/bin/bash
+
+GAUTOOLS=/apps/gau/gautools/gautools
+FASTQC=/apps/gau/fastQC_GAU_v0.8.0/fastqc
+MERGE_FASTQC=/apps/gau/mergeFastQC_v1.0/MergeFastQC.jar
+
+usage () {
+    echo "    
+        USAGE
+            `basename $0` <seqRunID> [READ1|READ2]
+        
+        DESCRIPTION
+            Generates a FastQC report in 
+            /gau-raw/data/ngs/database/<seqRunID>/FASTQC/.  The second 
+            argument, if specified, restricts analysis to a specific read.
+        
+        FEATURES/BUGS
+          * Handles (gzip-ed) FASTQ and QSEQ files, converting where needed.
+          * Assumes .qseq and .txt extensions indicate a QSEQ file.
+          * Calls MergeFastQC to generate combined.pdf.
+          * Requires /scratch/$USER to exist and be user-writable.
+        
+        OUTPUT
+            None to stdout, progress to stderr.
+        
+        EXIT STATUS
+             1    Usage error
+             2    File error
+             8    FastQC/MergeFastQC error
+
+    " | sed 's/^ \{4\}//' 1>&2
+    exit 1
+}
+
+exitWithStatusAndMsg () {
+    if [ "$1" != "0" ]; then
+        echo "Error [exit code $1] - $2" 1>&2
+    fi
+    exit $1
+}
+
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+    usage
+fi
+
+seqRunID=$1
+runDir=/gau-raw/data/ngs/database/$(printf %08.0f "$1")
+if [ ! -d "$runDir" ]; then
+	exitWithStatusAndMsg 2 "Directory not found: $runDir"
+fi
+read1=$(find "$runDir/READ1" -type f 2>/dev/null)
+read2=$(find "$runDir/READ2" -type f 2>/dev/null)
+if [ ! -f "$read1" ] && [ ! -f "$read2" ]; then
+    exitWithStatusAndMsg 2 "No read file found in $runDir"
+fi
+
+runFastqc() {
+    # $1   read file path
+    # $2 = string label e.g. "READ1", "READ2"
+    
+    ##
+    # Use a temporary directory in /scratch/$USER
+    #
+    tmpdir=$(TMPDIR=/scratch/$USER mktemp -d -t run_fastqc.XXXXXXXXXX)
+    if [ ! -d "$tmpdir" ]; then
+    	exitWithStatusAndMsg 2 "could not create a temp directory in /scratch/$USER"
+    fi
+        
+    ##
+	# Deal with file conversion.  FastQC requires uncompressed fastq.
+	#
+	"$GAUTOOLS" convert -i "$1" -o "$tmpdir/${2}.fastq"
+	retval=$?
+	if [ $retval -ne 0 ]; then
+		exitWithStatusAndMsg 2 "gautools convert error"
+	fi
+    
+    ##
+    # Run FastQC
+    #
+    "$FASTQC" --noextract -o "$runDir/FASTQC" "$tmpdir/${2}.fastq"
+    retval=$?
+    
+    ##
+    # Cleanup
+    #
+    rm -rf "$tmpdir"
+    rm -rf "$runDir/FASTQC/${2}_fastqc"
+    
+    if [ $retval -ne 0 ]; then
+    	rm -f "$runDir/FASTQC/${2}_fastqc.zip"
+    	exitWithStatusAndMsg 8 "FastQC exited with status $retval"
+    fi
+}
+
+mkdir -p "$runDir/FASTQC"
+
+##
+# Run FastQC
+#
+if [ -f "$read1" ] && [ "$2" != "READ2" ]; then
+	runFastqc "$read1" READ1
+fi
+if [ -f "$read2" ] && [ "$2" != "READ1" ]; then
+	runFastqc "$read2" READ2
+fi
+
+##
+# Run mergeFastQC on one or both reads if available
+#
+infiles=()
+labels=()
+if [ -f "$runDir/FASTQC/READ1_fastqc.zip" ]; then
+    infiles=("${infiles[@]}" "$runDir/FASTQC/READ1_fastqc.zip")
+    labels=("${labels[@]}" "${seqRunID}_READ1")
+fi
+if [ -f "$runDir/FASTQC/READ2_fastqc.zip" ]; then
+    infiles=("${infiles[@]}" "$runDir/FASTQC/READ2_fastqc.zip")
+    labels=("${labels[@]}" "${seqRunID}_READ2")
+fi	
+
+java -jar "$MERGE_FASTQC" \
+    -o "$runDir/FASTQC/combined.pdf" \
+    -i "${infiles[@]}" -n "${labels[@]}"
+retval=$?
+if [ $retval -ne 0 ]; then
+	rm -f "$runDir/FASTQC/combined.pdf"
+	exitWithStatusAndMsg 8 "MergeFastQC exited with status $retval"
+fi
+
+exit 0

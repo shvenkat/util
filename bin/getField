@@ -1,0 +1,11 @@
+#!/bin/sh
+
+# returns the value at row $2, column $3 in file $1
+
+filename=$1
+rowname=$2
+colname=$3
+
+col=$(head -n1 "$filename" | tr '\t' '\n' | grep -n "$colname" | grep -oP '^\d+')
+value=$(grep -G "^${rowname}	" "$filename" | cut -d'	' -f $col)
+echo $value

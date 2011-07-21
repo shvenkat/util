@@ -1,0 +1,170 @@
+#!/bin/bash
+
+FASTQC_SEQRUNID="$(dirname $0)/fastqc_SeqRunID"
+
+usage() {
+    echo "    
+        USAGE
+            `basename $0` readFile [readFile ...]
+        
+        DESCRIPTION
+            Gzips and moves readFile to /gau-raw/data/ngs/database/, 
+            generates a FastQC report and prints the number of reads 
+            sequenced to stdout.
+        
+        FEATURES/BUGS
+          * Deletes readFile on completion.
+          * Assumes readFile name begins with GAU SequenceRunID followed 
+            by an underscore.  Also that READ2 is indicated by either 
+            READ2|READ_2 anywhere in readFile path or _2.(fastq|fq|qseq|txt)
+            at the end.
+          * Requires /scratch/$USER to exist and be user-writable.
+        
+        OUTPUT
+            Prints number of reads to stdout and progress to stderr.
+            
+        EXIT STATUS
+            0    Success
+            1    One or more errors
+    " | sed 's/^ \{4\}//' 1>&2
+    exit 1
+}
+
+exitWithStatusAndMsg() {
+    if [ "$1" != "0" ]; then
+        echo "Error [exit code $1]: $2" 1>&2
+    fi
+    exit $1
+}
+
+errorMsg () {
+    echo "Error [`basename $0`]: $1" 1>&2
+    exitStatus=1
+}
+
+progressMsg() {
+    if [ "$1" == "-n" ]; then
+        echo -n "$2" 1>&2
+    else
+        echo "$1" 1>&2
+    fi
+}
+
+##
+# Check usage
+#
+if [ $# -lt 1 ]; then 
+    usage
+fi
+
+exitStatus=0
+for arg in "$@"; do
+
+	if [ ! -f "$arg" ]; then 
+	    errorMsg "File not found - $arg"
+	    continue
+	fi
+	
+	filepath=$arg
+	filename=$(basename "$filepath")
+	
+	##
+	# Get GAU SequenceRunID from filename
+	#
+	seqRunID=$(echo $filename | sed -n 's/^\([0-9]\+\)_.\+$/\1/p')
+	if [ "x$seqRunID" == "x" ]; then
+	    errorMsg "Filename does not begin with an integer SeqRunID - $filename"
+	    continue
+	fi
+	
+	##
+	# Is this a read file?
+	#
+	if echo $filepath | \
+	       grep -qviP '\.fastq$|\.fq$|\.qseq$|\.txt$'; then
+	    errorMsg "Filename does not have a known extension - $filename"
+	    continue
+	fi
+
+	##
+	# Is this a mate file?
+	#
+	if echo $filepath | \
+	       grep -qiP 'read2|read_2|_2\.fastq$|_2\.fq$|_2\.qseq$|_2\.txt$'; then
+	    readDir="READ2"
+	else
+	    readDir="READ1"
+	fi
+	
+	runDir=$(printf %08.0f "$seqRunID")
+	destDir=/gau-raw/data/ngs/database/$runDir/$readDir
+	destPath=$destDir/${filename}.gz
+	
+	if [ -f "$destPath" ]; then
+	    errorMsg "${filename}.gz already exists at $destDir"
+	    continue
+	fi
+	
+	##
+	# Compress
+	#
+	mkdir -p "$destDir"
+	progressMsg -n "Gzip-ing $filepath to $destPath ... "
+	gzip -c "$filepath" > "$destPath"
+	retval=$?
+	if [ $retval -ne 0 ]; then
+	    progressMsg "FAILED"
+	    rm -f "$destPath"
+	    errorMsg "gzip exited with status $retval"
+	    continue
+	fi
+	
+	##
+	# Check compressed file
+	#
+	gunzip -c "$destPath" | cmp - "$filepath"
+	retval=$?
+	if [ $retval -ne 0 ]; then
+		progressMsg "FAILED"
+	    rm -f "$destPath"
+	    errorMsg "gzip compression error"
+	    continue
+	fi
+	progressMsg "done"
+	
+	##
+	# Change permissions to prevent inadvertent modification
+	#
+	chmod -R -w $destDir
+
+	##
+	# Delete uncompressed file
+	#
+	rm -f "$filepath"
+	
+	##
+	# Generate FastQC report
+	#
+	progressMsg -n "Generating FastQC in $runDir ... "
+	"$FASTQC_SEQRUNID" $seqRunID $readDir 2>/dev/null 1>&2
+	retval=$?
+	if [ $retval -ne 0 ]; then
+		progressMsg "FAILED"
+		errorMsg "fastqc_SeqRunID exited with status $retval"
+		continue
+	fi
+	progressMsg "done"
+	
+	##
+	# Print read count
+	#
+	fastqcDir=${destDir}/../FASTQC
+	fastqcFile=${readDir}_fastqc.zip
+	readCount=$( unzip -c "${fastqcDir}/${fastqcFile}" \
+    	"${readDir}_fastqc/fastqc_data.txt" \
+    	| grep -E '^Total Sequences' | cut -d'	' -f2 )
+	echo "SequenceRunID $seqRunID, $readDir: $readCount reads sequenced"
+
+done
+
+exit $exitStatus

@@ -1,0 +1,74 @@
+#!/bin/sh
+
+NAME=`basename $0`
+TIGER_VNCSERVER=/opt/TigerVNC/bin/vncserver
+TURBO_VNCSERVER=/opt/TurboVNC/bin/vncserver
+REAL_VNCSERVER=/usr/bin/vncserver
+VNCSERVER=$TIGER_VNCSERVER
+
+usage () {
+    echo "Usage: "
+    echo "    $NAME help"
+    echo "    $NAME status"
+    echo "    $NAME start big|small [tiger|turbo|real]"
+    echo "    $NAME stop big|small"
+    exit 1
+}
+
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+case "$2" in
+    big)
+        DISPLAY=':1'
+        GEOMETRY='1920x1200'
+        ;;
+    small)
+        DISPLAY=':2'
+        GEOMETRY='1280x800'
+        ;;
+    *)
+        DISPLAY=''
+        GEOMETRY=''
+        if [ "$1" = "start" -o "$1" = "stop" ]; then 
+            usage
+        fi
+esac
+
+case "$1" in 
+    help)
+        usage
+        ;;
+    status)
+        "$VNCSERVER" -list | tail -n+4
+        ;;
+    start)
+        case "$3" in 
+            tiger|'')
+                "$TIGER_VNCSERVER" "$DISPLAY" -geometry "$GEOMETRY" \
+                    -localhost -nolisten tcp -nevershared \
+                    -deferupdate 200 +bs -autokill
+                    #-deferupdate 200 +bs -extension GLX -autokill
+                ;;
+            turbo)
+                #TVNC_MT=0 TVNC_NTHREADS=1 TVNC_ALRALL=1 
+                "$TURBO_VNCSERVER" "$DISPLAY" -geometry "$GEOMETRY" \
+                    -nohttpd -localhost -nolisten tcp \
+                    -nootp -nopam -noreverse -nevershared \
+                    -compatiblekbd -deferupdate 200 -alr 10
+                ;;
+            real)
+                "$REAL_VNCSERVER" "$DISPLAY" -geometry "$GEOMETRY" \
+                    -nohttpd -localhost -nolisten tcp
+                ;;
+            *)
+                usage
+        esac
+        ;;
+    stop)
+        "$VNCSERVER" -kill "$DISPLAY"
+        ;;
+    *)
+        usage
+esac
