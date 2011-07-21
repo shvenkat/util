@@ -1,0 +1,16 @@
+#!/bin/bash
+
+if [ $# -ne 2 ]; then
+        echo "Usage: $(basename $0) <file> <config>" 1>&2
+        exit 1
+fi
+
+file=$1
+config=$2
+
+if [ ! -f "$file" ]; then
+        echo "File not found: $file" 1>&2
+        exit 2
+fi
+
+sed -n "s/^${config}=\(.\+\)\$/\1/p" "$file"

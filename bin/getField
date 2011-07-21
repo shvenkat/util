@@ -6,6 +6,6 @@ filename=$1
 rowname=$2
 colname=$3
 
-col=$(head -n1 "$filename" | tr '\t' '\n' | grep -n "$colname" | grep -oP '^\d+')
+col=$(head -n1 "$filename" | tr '\t' '\n' | grep -n "^${colname}\$" | grep -oP '^\d+')
 value=$(grep -G "^${rowname}	" "$filename" | cut -d'	' -f $col)
 echo $value

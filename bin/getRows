@@ -1,0 +1,10 @@
+#!/bin/sh
+
+# returns rows with value $3 in column $2 in file $1
+
+filename=$1
+colname=$2
+value=$3
+
+col=$(head -n1 "$filename" | tr '\t' '\n' | grep -n "^${colname}\$" | grep -oP '^\d+')
+grep -P "^([^\t]*\t){$((col-1))}(${value})" "$filename"
