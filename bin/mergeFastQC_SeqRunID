@@ -1,0 +1,69 @@
+#!/bin/bash
+
+MERGE_FASTQC=/apps/gau/mergeFastQC_v1.0/MergeFastQC.jar
+
+usage () {
+    echo "    
+        USAGE
+            `basename $0` <seqRunID>
+        
+        DESCRIPTION
+            Generates a MergeFastQC report in 
+            /gau-raw/data/ngs/database/<seqRunID>/FASTQC/.  
+        
+        FEATURES/BUGS
+          * Calls Oliver's MergeFastQC to generate combined.pdf.
+        
+        OUTPUT
+            None to stdout, progress to stderr.
+        
+        EXIT STATUS
+             1    Usage error
+             2    File error
+             8    MergeFastQC error
+
+    " | sed 's/^ \{4\}//' 1>&2
+    exit 1
+}
+
+exitWithStatusAndMsg () {
+    if [ "$1" != "0" ]; then
+        echo "Error [exit code $1] - $2" 1>&2
+    fi
+    exit $1
+}
+
+if [ $# -ne 1 ]; then
+    usage
+fi
+
+seqRunID=$1
+runDir=/gau-raw/data/ngs/database/$(printf %08.0f "$1")
+if [ ! -d "$runDir" ]; then
+	exitWithStatusAndMsg 2 "Directory not found: $runDir"
+fi
+
+##
+# Run mergeFastQC on one or both reads if available
+#
+infiles=()
+labels=()
+if [ -f "$runDir/FASTQC/READ1_fastqc.zip" ]; then
+    infiles=("${infiles[@]}" "$runDir/FASTQC/READ1_fastqc.zip")
+    labels=("${labels[@]}" "${seqRunID}_READ1")
+fi
+if [ -f "$runDir/FASTQC/READ2_fastqc.zip" ]; then
+    infiles=("${infiles[@]}" "$runDir/FASTQC/READ2_fastqc.zip")
+    labels=("${labels[@]}" "${seqRunID}_READ2")
+fi	
+
+java -jar "$MERGE_FASTQC" \
+    -o "$runDir/FASTQC/combined.pdf" \
+    -i "${infiles[@]}" -n "${labels[@]}"
+retval=$?
+if [ $retval -ne 0 ]; then
+	rm -f "$runDir/FASTQC/combined.pdf"
+	exitWithStatusAndMsg 8 "MergeFastQC exited with status $retval"
+fi
+
+exit 0
