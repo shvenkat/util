@@ -1,14 +1,20 @@
 #!/bin/bash
 
+set -e
+set -o pipefail
+
 #
 # set parameters
 #
 declare -a SRC EXCLUDE
 RSYNC=/home/shvenkat/bin/rsync
+TAR=/bin/tar
+GPG=/usr/bin/gpg
 SRC=(/ /boot)
-DST_DIR=/system-snapshots/
-DST_PREFIX=system-snapshot-
 EXCLUDE=(/system-snapshots/ /user-snapshots/ lost+found/ '/tmp/*')
+DST_DIR=/system-snapshots
+DST_PREFIX=system-snapshot-
+TARBALL_DST=/scratch/shvenkat/system.tgz.gpg
 doDryRun="false"
 
 #
@@ -47,13 +53,17 @@ while [ $# -gt 0 ]; do
 done
 
 #
+# must be run as root user
+#
+if [[ $(id -nu) != "root" ]]; then
+	error "must be run as root user"
+fi
+
+#
 # determine previous backup dir and this backup dir
 #
 prev_dir=$(find "$DST_DIR" -mindepth 1 -maxdepth 1 -type d -print | \
            sort -r | head -n1)
-#prev_dir=$(basename "$prev_dir")
-#prev_time=${prev_dir#"${DST_PREFIX}"}
-#prev_time=$(echo "$prev_time" | grep -oP '\d{4}-\d{2}-\d{2}-\d{4}$')
 if [[ -z $prev_dir ]]; then
 	error "Unable to locate previous backup"
 fi
@@ -96,5 +106,24 @@ push_rsyncOpts "--link-dest=${prev_dir}/"
 if [[ $doDryRun == "true" ]]; then
 	"$RSYNC" "${rsyncOpts[@]}" "${SRC[@]}" "$dst"
 else
+    echo "snapshot-ing" "${SRC[@]}" "to" "$dst" "..."
 	"$RSYNC" "${rsyncOpts[@]}" "${SRC[@]}" "$dst" > "$log"
+fi
+retval=$?
+if [[ $retval -ne 0 ]]; then
+	error "$RSYNC exited with status $retval"
+	exit $retval
+fi
+
+if [[ $doDryRun == "false" ]]; then
+	echo "tarball-ing" "$dst" "to" "$TARBALL_DST" "..."
+	"$TAR" -czf- "$dst" \
+	| "$GPG" --homedir /root/.gnupg --force-mdc --require-secmem \
+	  --trust-model always --encrypt --recipient 'shvenkat@amgen.com' \
+	> "$TARBALL_DST"
+fi
+retval=$?
+if [[ $retval -ne 0 ]]; then
+	error "$TAR or $GPG exited with status $retval"
+	exit $retval
 fi
