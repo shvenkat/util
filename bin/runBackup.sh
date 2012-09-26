@@ -102,8 +102,19 @@ get_lockfile () {
 	#echo "get_lockfile: creating lock file ${lockDir}/${lockFile} ..."
 	#mktemp "${lockDir}/${lockFile}"
 	if [[ ! -f "${lockDir}/${lockFile}" ]]; then
-		echo $$ > "${lockDir}/${lockFile}"
+		:
 	else
+		# Check that the lock file has not been abandoned
+		pid=$(cat "${lockDir}/${lockFile}")
+		if ps -p $pid | grep -q $pid; then
+			error "$lockFile already in use by another instance of this program"
+		else
+			:
+		fi
+	fi
+	echo $$ > "${lockDir}/${lockFile}"
+	retval=$?
+	if [[ $retval -ne 0 ]]; then
 		error "cannot create lockfile $lockFile in $lockDir"
 	fi
 }
